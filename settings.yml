@@ -1,0 +1,21 @@
+logging_config:
+    version: 1
+    disable_existing_loggers: True
+    formatters:
+        simpleFormatter:
+            format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    handlers:
+        consoleHandler:
+            class: logging.StreamHandler
+            level: DEBUG
+            formatter: simpleFormatter
+            stream: ext://sys.stdout
+    loggers:
+        root:
+            level: DEBUG
+            handlers: ['consoleHandler']
+            level: DEBUG
+data_config:
+  fundamentals_path: "./Data/stock_fundamental_data/"
+  stocks_path: "./Data/stock_price_data/Data/Stocks/"
+  industries_path: "./Data/sp_data/"
