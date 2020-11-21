@@ -118,17 +118,17 @@ class data_pipeline:
         tmp_fundamentals = self.fundamentals.copy()
         tmp_fundamentals["Period Ending"] = tmp_fundamentals["Period Ending"].apply(lambda x: x.year+1)
         prices_pct = self.prices_pct(window)
-        return self.prices_pct.groupby([prices_pct.Stock, prices_pct.Date.dt.year])[["pct_change"]]\
-                                       .std().dropna().reset_index(level=[0])\
-                                       .merge(tmp_fundamentals, left_on=["Stock", "Date"], \
-                                        right_on=["Ticker Symbol", "Period Ending"])\
-                                       .drop("Ticker Symbol", axis=1) 
+        return prices_pct.groupby([prices_pct.Stock, prices_pct.Date.dt.year])[["pct_change"]]\
+                         .std().dropna().reset_index(level=[0])\
+                         .merge(tmp_fundamentals, left_on=["Stock", "Date"], \
+                          right_on=["Ticker Symbol", "Period Ending"])\
+                         .drop("Ticker Symbol", axis=1) 
 
     def prices_pct(self, window=5):
         price_pct_change_year = self.price_data\
                                     .groupby([self.price_data.Stock, self.price_data.Date.dt.year])["Close"]\
                                     .pct_change(window)
         prices_pct = self.price_data.copy()
-        prices_pct["pct_change"] = self.price_pct_change_year
+        prices_pct["pct_change"] = price_pct_change_year
         return prices_pct.dropna()
 
