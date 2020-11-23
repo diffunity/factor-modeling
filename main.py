@@ -1,6 +1,6 @@
 import yaml
 import logging.config
-from pipeline import data_pipeline
+from pipeline import Data_pipeline
 
 def main():
 
@@ -12,27 +12,28 @@ def main():
   logging.config.dictConfig(logging_config)
   logger = logging.getLogger('root')
   
-  data = data_pipeline(data_config, logger)
+  data = Data_pipeline(data_config, logger)
 
-  logger.info(data.companies)
+  # volatilities
+  vol_data = data.fund_to_vol()
+  raw_vol_data = vol_data.raw()
+  minmax_vol_data = vol_data.minmax()
+  std_vol_data = vol_data.standardscaling()
   
-  logger.info(data.stock_volatilities([5,15,30,60]).head(5))
+  # percentage change
+  pct_data = data.fund_to_pct_change(5)
+  raw_pct_data = pct_data.raw()
+  minmax_pct_data = pct_data.minmax()
+  std_pct_data = pct_data.standardscaling()
 
-  logger.info(data.OLS(['Capital Expenditures',\
-                        'Investments',\
-                        'Other Investing Activities',\
-                        'Net Cash Flows-Investing',\
-                        'Effect of Exchange Rate',\
-                        'Other Equity',\
-                        'Treasury Stock',\
-                        'Sale and Purchase of Stock',\
-                        'Gross Margin',\
-                        'Operating Margin',\
-                        'Misc. Stocks',\
-                        'Quick Ratio',\
-                        'Current Ratio',\
-                        'Cash Ratio']).summary())
 
+  data.produce_report("Raw_Vol.jpg", raw_vol_data)
+  data.produce_report("MinMax_Vol.jpg", minmax_vol_data)
+  data.produce_report("StandardScaled_Vol.jpg", std_vol_data)
+
+  data.produce_report("Raw_Pct_Change.jpg", raw_pct_data)
+  data.produce_report("MinMax_Pct_Change.jpg", minmax_pct_data)
+  data.produce_report("StandardScaled_Pct_Change.jpg", std_pct_data)
 
 if __name__=="__main__":
   main()

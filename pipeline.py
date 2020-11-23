@@ -1,12 +1,16 @@
 import os
+import time
 from typing import List
 import numpy as np
 import pandas as pd
+import seaborn as sns
+import statsmodels.api as sm
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from sklearn.model_selection import train_test_split
 
-class data_pipeline:
+
+class Data_pipeline:
     
     def __init__(self, data_config, logger):
         self.fundamentals_path = data_config["fundamentals_path"]
@@ -35,13 +39,57 @@ class data_pipeline:
         self.logger.info(f"Extraction complete")
         self.price_data = self.price_data.reset_index(drop=True)
 
-        self.price_data = self.price_data.merge(self.industries[["Symbol","Sector"]], 
+        self.price_data = self.price_data.merge(self.industries[["Symbol","Sector"]],\
                                                 left_on="Stock", right_on="Symbol")\
                                                 .drop(["Symbol"], axis=1)
 
-    def spy_total(self):
-        return self.price_data
+    @property
+    def companies(self):
+        self.fund_set = set(self.fundamentals["Ticker Symbol"].unique())
+        self.ind_set = set(self.industries["Symbol"].unique())
+        self.stock_set = set([i.split(".")[0].upper() for i in os.listdir(self.stocks_path)\
+                       if (os.path.isfile(self.stocks_path+i) and i.endswith("us.txt"))])
+        if len(self.price_data) > 1:
+            return self.fund_set.intersection(self.ind_set.intersection(self.price_data["Stock"]))
+        return self.fund_set.intersection(self.ind_set.intersection(self.stock_set))
+    
+    def prices_pct(self, window=5):
+        price_pct_change_year = self.price_data\
+                                    .groupby([self.price_data.Stock, self.price_data.Date.dt.year])["Close"]\
+                                    .pct_change(window)
+        prices_pct = self.price_data.copy()
+        prices_pct["Close"] = price_pct_change_year
+        return prices_pct.dropna()
 
+    def prices_vol(self):
+        price_vol_year = self.price_data\
+                                    .groupby([self.price_data.Stock, self.price_data.Date.dt.year])["Close"]\
+                                    .std()
+        prices_vol = self.price_data.copy()
+        prices_vol["Close"] = price_vol_year.values
+        return prices_vol.dropna()
+        
+
+    def fund_to_pct_change(self, window):
+        tmp_fundamentals = self.fundamentals.copy()
+        tmp_fundamentals["Period Ending"] = tmp_fundamentals["Period Ending"].apply(lambda x: x.year+1)
+        prices_pct = self.prices_pct(window)
+        return preprocessing_wrapper(prices_pct.groupby([prices_pct.Stock, prices_pct.Date.dt.year])[["Close"]]\
+                                               .std().dropna().reset_index(level=[0])\
+                                               .merge(tmp_fundamentals, left_on=["Stock", "Date"], \
+                                                right_on=["Ticker Symbol", "Period Ending"])\
+                                               .drop("Ticker Symbol", axis=1))
+    def fund_to_vol(self):
+        tmp_fundamentals = self.fundamentals.copy()
+        tmp_fundamentals["Period Ending"] = tmp_fundamentals["Period Ending"].apply(lambda x: x.year+1)
+        # prices_vol = self.prices_vol()
+        return preprocessing_wrapper(self.price_data.groupby([self.price_data.Stock, self.price_data.Date.dt.year])[["Close"]]\
+                                                    .std()\
+                                                    .reset_index(level=[0])\
+                                                    .merge(tmp_fundamentals, left_on=["Stock", "Date"], \
+                                                     right_on=["Ticker Symbol", "Period Ending"])\
+                                                    .drop("Ticker Symbol", axis=1))
+        
     def calc_volatilities(self, quote, column, days=5):
         start_idx = self.price_data[self.price_data["Stock"]==quote].index[0]+days-1
         return self.price_data[self.price_data["Stock"]==quote].rolling(days)[column].std().loc[start_idx:]
@@ -60,7 +108,6 @@ class data_pipeline:
         stocks_vol = self.stocks_volatilities(days)
         return stocks_vol.groupby("Industry").agg(["mean","std"])
 
-    
     def plot(self, quote, ma=[3,5], filename=None):
         # defaults to moving average with [3,5]
         data = self.price_data[self.price_data['Stock']==quote]
@@ -83,52 +130,75 @@ class data_pipeline:
             plt.savefig(filename)
             plt.clf()
 
-    def OLS(self, columns_to_keep, window, test_ratio=0.1):
-        n = len(self.fund_to_pct_change)
-        data = self.fund_to_pct_change(window)
-        X, X_test, Y, Y_test = train_test_split(data["pct_change"].values,\
-                                                data.loc[:,columns_to_keep].values,\
+    @staticmethod
+    def produce_report(fname, data, test_ratio=0.1, topn=15, save=True):
+        fig = plt.figure(figsize=(40,100))
+        gs = fig.add_gridspec(nrows=13, ncols=1)
+        top_corr = fig.add_subplot(gs[:3,:])
+        heatmap = fig.add_subplot(gs[3:7,:])
+        ols_result = fig.add_subplot(gs[7:10,:])
+        regplot = fig.add_subplot(gs[10:13,:])
+    
+        top_corr.text(0, 0, str(data.corr()["pct_change"].sort_values()[-15:-1]),
+                            {'fontsize': 35}, fontproperties = 'monospace',
+#                           ha='left',
+#                            verticalalignment='center',
+                     )
+        top_corr.title(f"Correlation ranking (Top {topn})")
+        top_corr.axis('off')
+    
+        sns.heatmap(data.corr(), ax=heatmap)
+    
+        columns_to_keep = data.corr()["pct_change"].sort_values()[-15:-1].index
+        X, X_test, Y, Y_test = train_test_split(data.loc[:,columns_to_keep].values,\
+                                                data["pct_change"].values,\
                                                 test_size=test_ratio)
-#        Y = data["pct_change"].values[:-int(n*test_ratio)]
-#        X = data.loc[columns_to_keep,:]\
-#                .values[:-int(n*test_ratio),:]
-
-#        Y_test = data["pct_change"].values[-int(n*test_ratio):]
-#        X_test = data.loc[columns_to_keep,:]\
-#                     .values[-int(n*test_ratio):,:]
-
         X = sm.add_constant(X)
         X_test = sm.add_constant(X_test)
-
+    
         model = sm.OLS(Y,X)
+    
         results = model.fit()
-        return results
+    
+        ols_result.text(0, 0, str(results.summary()),
+                              {'fontsize': 35}, fontproperties = 'monospace',
+#                             ha='center',
+#                              verticalalignment='center'
+                       )
+        ols_result.axis('off')
+        print(Y.shape, X.shape)
+        print(Y_test.shape, X_test.shape, results.params.shape)
+        sns.regplot(Y_test, (X_test @ results.params),
+                    ax=regplot)
+        plt.tight_layout()
+        if save:
+            self.logger.info(f"Saving to {fname}")
+            plt.save(fname)
+        else:
+            plt.plot()
 
-    @property
-    def companies(self):
-        self.fund_set = set(self.fundamentals["Ticker Symbol"].unique())
-        self.ind_set = set(self.industries["Symbol"].unique())
-        self.stock_set = set([i.split(".")[0].upper() for i in os.listdir(self.stocks_path)\
-                       if (os.path.isfile(self.stocks_path+i) and i.endswith("us.txt"))])
-        if len(self.price_data) > 1:
-            return self.fund_set.intersection(self.ind_set.intersection(self.price_data["Stock"]))
-        return self.fund_set.intersection(self.ind_set.intersection(self.stock_set))
+class preprocessing_wrapper:
+    def __init__(self, data):
+        self.data = data
 
-    def fund_to_pct_change(self, window):
-        tmp_fundamentals = self.fundamentals.copy()
-        tmp_fundamentals["Period Ending"] = tmp_fundamentals["Period Ending"].apply(lambda x: x.year+1)
-        prices_pct = self.prices_pct(window)
-        return prices_pct.groupby([prices_pct.Stock, prices_pct.Date.dt.year])[["pct_change"]]\
-                         .std().dropna().reset_index(level=[0])\
-                         .merge(tmp_fundamentals, left_on=["Stock", "Date"], \
-                          right_on=["Ticker Symbol", "Period Ending"])\
-                         .drop("Ticker Symbol", axis=1) 
+    def raw(self):
+        return self.data
 
-    def prices_pct(self, window=5):
-        price_pct_change_year = self.price_data\
-                                    .groupby([self.price_data.Stock, self.price_data.Date.dt.year])["Close"]\
-                                    .pct_change(window)
-        prices_pct = self.price_data.copy()
-        prices_pct["pct_change"] = price_pct_change_year
-        return prices_pct.dropna()
+    def minmax(self):
+        aaa = self.data.drop(["Period Ending", "Close"],axis=1)\
+                       .groupby("Stock")\
+                       .transform(lambda x: (x - x.min()) / (x.max()-x.min()))
+        idx_to_keep = aaa.isnull().sum(axis=0).sort_values()[aaa.isnull().sum(axis=0).sort_values() < 100].index
+        data_preprocessed = self.data[["Stock","Close", "Period Ending"]].join(aaa[idx_to_keep])
+        return data_preprocessed.fillna(0)
 
+    def standardscaling(self):
+        bbb = self.data.drop(["Period Ending", "Close"],axis=1)\
+                       .groupby("Stock")\
+                       .transform(lambda x: True if x.min()==x.max()==0 else False)
+        idx_to_keep = bbb.sum(axis=0)[bbb.sum(axis=0)<100].index
+        ccc = self.data.drop(["Period Ending", "Close"],axis=1)\
+                       .groupby("Stock")\
+                       .transform(lambda x: (x-x.mean())/(x.std()))
+        data_preprocessed = self.data[["Stock","Close", "Period Ending"]].join(ccc[idx_to_keep])
+        return data_preprocessed.fillna(0)
