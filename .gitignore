@@ -4,6 +4,7 @@
 *.ipynb
 *.zip
 *.jpg
+*.pdf
 Data/
 proposal*/
 # Byte-compiled / optimized / DLL files
