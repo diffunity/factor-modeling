@@ -61,34 +61,23 @@ class Data_pipeline:
         prices_pct["Close"] = price_pct_change_year
         return prices_pct.dropna()
 
-    def prices_vol(self):
-        price_vol_year = self.price_data\
-                                    .groupby([self.price_data.Stock, self.price_data.Date.dt.year])["Close"]\
-                                    .std()
-        prices_vol = self.price_data.copy()
-        prices_vol["Close"] = price_vol_year.values
-        return prices_vol.dropna()
-        
-
     def fund_to_pct_change(self, window):
         tmp_fundamentals = self.fundamentals.copy()
         tmp_fundamentals["Period Ending"] = tmp_fundamentals["Period Ending"].apply(lambda x: x.year+1)
         prices_pct = self.prices_pct(window)
         return preprocessing_wrapper(prices_pct.groupby([prices_pct.Stock, prices_pct.Date.dt.year])[["Close"]]\
                                                .std().dropna().reset_index(level=[0])\
-                                               .merge(tmp_fundamentals, left_on=["Stock", "Date"], \
+                                               .merge(tmp_fundamentals, left_on=["Stock", "Date"],\
                                                 right_on=["Ticker Symbol", "Period Ending"])\
-                                               .drop("Ticker Symbol", axis=1))
+                                               .drop("Ticker Symbol", axis=1), self.logger)
     def fund_to_vol(self):
         tmp_fundamentals = self.fundamentals.copy()
         tmp_fundamentals["Period Ending"] = tmp_fundamentals["Period Ending"].apply(lambda x: x.year+1)
-        # prices_vol = self.prices_vol()
         return preprocessing_wrapper(self.price_data.groupby([self.price_data.Stock, self.price_data.Date.dt.year])[["Close"]]\
-                                                    .std()\
-                                                    .reset_index(level=[0])\
-                                                    .merge(tmp_fundamentals, left_on=["Stock", "Date"], \
+                                                    .std().dropna().reset_index(level=[0])\
+                                                    .merge(tmp_fundamentals, left_on=["Stock", "Date"],\
                                                      right_on=["Ticker Symbol", "Period Ending"])\
-                                                    .drop("Ticker Symbol", axis=1))
+                                                    .drop("Ticker Symbol", axis=1), self.logger)
         
     def calc_volatilities(self, quote, column, days=5):
         start_idx = self.price_data[self.price_data["Stock"]==quote].index[0]+days-1
@@ -108,13 +97,15 @@ class Data_pipeline:
         stocks_vol = self.stocks_volatilities(days)
         return stocks_vol.groupby("Industry").agg(["mean","std"])
 
-    def plot(self, quote, ma=[3,5], filename=None):
+    def plot(self, quote, feature="Close", ma=[3,5], filename=None):
         # defaults to moving average with [3,5]
+        self.logger.info("Begin Plotting...")
         data = self.price_data[self.price_data['Stock']==quote]
         fig = plt.figure(figsize=(27,18))
         gs = fig.add_gridspec(nrows=4, ncols=1)
         price = fig.add_subplot(gs[:3,:])
-        price.plot(data["Close"])
+        price.plot(data[feature])
+        price.set_title(f"{quote} Stock {feature} Graph")
         if ma is not None:
             for ma_time in ma:
                 price.plot(data["Close"].rolling(ma_time).mean(), lw=0.5)
@@ -128,30 +119,31 @@ class Data_pipeline:
             plt.show()
         else:
             plt.savefig(filename)
-            plt.clf()
+        self.logger.info(f"{quote} Stock {feature} Graph produced")
+        plt.clf()
 
-    @staticmethod
-    def produce_report(fname, data, test_ratio=0.1, topn=15, save=True):
+    def produce_report(self, data, test_ratio=0.1, topn=15, fname=None):
         fig = plt.figure(figsize=(40,100))
-        gs = fig.add_gridspec(nrows=13, ncols=1)
-        top_corr = fig.add_subplot(gs[:3,:])
-        heatmap = fig.add_subplot(gs[3:7,:])
-        ols_result = fig.add_subplot(gs[7:10,:])
-        regplot = fig.add_subplot(gs[10:13,:])
+        gs = fig.add_gridspec(nrows=17, ncols=1)
+        top_corr = fig.add_subplot(gs[:2,:])
+        heatmap = fig.add_subplot(gs[2:7,:])
+        ols_result = fig.add_subplot(gs[7:12,:])
+        regplot = fig.add_subplot(gs[12:17,:])
     
-        top_corr.text(0, 0, str(data.corr()["pct_change"].sort_values()[-15:-1]),
+        top_corr.text(0, 0, str(data.corr()["Close"].sort_values()[-15:-1]),
                             {'fontsize': 35}, fontproperties = 'monospace',
-#                           ha='left',
-#                            verticalalignment='center',
                      )
-        top_corr.title(f"Correlation ranking (Top {topn})")
+        top_corr.set_title(f"Correlation ranking (Top {topn})", {'fontsize':35})
         top_corr.axis('off')
     
         sns.heatmap(data.corr(), ax=heatmap)
-    
-        columns_to_keep = data.corr()["pct_change"].sort_values()[-15:-1].index
+        heatmap.set_title("Heatmap of features", {'fontsize':35})
+        
+        self.logger.info("Begin regression analysis")
+
+        columns_to_keep = data.corr()["Close"].sort_values()[-15:-1].index
         X, X_test, Y, Y_test = train_test_split(data.loc[:,columns_to_keep].values,\
-                                                data["pct_change"].values,\
+                                                data["Close"].values,\
                                                 test_size=test_ratio)
         X = sm.add_constant(X)
         X_test = sm.add_constant(X_test)
@@ -162,37 +154,41 @@ class Data_pipeline:
     
         ols_result.text(0, 0, str(results.summary()),
                               {'fontsize': 35}, fontproperties = 'monospace',
-#                             ha='center',
-#                              verticalalignment='center'
                        )
         ols_result.axis('off')
-        print(Y.shape, X.shape)
-        print(Y_test.shape, X_test.shape, results.params.shape)
+        self.logger.info(f"Y Shape: {Y.shape}, X Shape: {X.shape}")
+
         sns.regplot(Y_test, (X_test @ results.params),
                     ax=regplot)
+        regplot.set_title("Regression plot on test data", {'fontsize':35})
+
         plt.tight_layout()
-        if save:
-            self.logger.info(f"Saving to {fname}")
-            plt.save(fname)
-        else:
+        self.logger.info(f"Saving to {fname}")
+        if fname is None:
             plt.plot()
+        else:
+            plt.savefig(fname)
+        self.logger.info(f"Report produced")
+        plt.clf()
 
 class preprocessing_wrapper:
-    def __init__(self, data):
+    def __init__(self, data, logger):
         self.data = data
-
+        self.logger = logger
     def raw(self):
         return self.data
 
     def minmax(self):
+        self.logger.info("Scaling data for minmax")
         aaa = self.data.drop(["Period Ending", "Close"],axis=1)\
                        .groupby("Stock")\
                        .transform(lambda x: (x - x.min()) / (x.max()-x.min()))
-        idx_to_keep = aaa.isnull().sum(axis=0).sort_values()[aaa.isnull().sum(axis=0).sort_values() < 100].index
+        idx_to_keep = aaa.isnull().sum(axis=0).sort_values()[aaa.isnull().sum(axis=0).sort_values()<100].index
         data_preprocessed = self.data[["Stock","Close", "Period Ending"]].join(aaa[idx_to_keep])
         return data_preprocessed.fillna(0)
 
     def standardscaling(self):
+        self.logger.info("Scaling data for standard scaling")
         bbb = self.data.drop(["Period Ending", "Close"],axis=1)\
                        .groupby("Stock")\
                        .transform(lambda x: True if x.min()==x.max()==0 else False)

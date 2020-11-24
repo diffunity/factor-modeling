@@ -16,6 +16,16 @@ logging_config:
             handlers: ['consoleHandler']
             level: DEBUG
 data_config:
-  fundamentals_path: "./Data/stock_fundamental_data/"
-  stocks_path: "./Data/stock_price_data/Data/Stocks/"
-  industries_path: "./Data/sp_data/"
+    fundamentals_path: "./Data/stock_fundamental_data/"
+    stocks_path: "./Data/stock_price_data/Data/Stocks/"
+    industries_path: "./Data/sp_data/"
+    plot_stock_graph:
+        quote: "AAPL"
+        feature: "Close"
+        ma: [3,5]
+        filename: "AAPL_Close_graph.jpg"
+    report:
+        pct_change: 5
+        test_ratio: 0.1
+        topn: 15
+        
