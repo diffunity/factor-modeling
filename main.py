@@ -19,7 +19,7 @@ def main():
             ma=data_config["plot_stock_graph"]["ma"], \
             filename=data_config["plot_stock_graph"]["filename"])
 
-  # volatilities
+  # raw volatilities
   vol_data = data.fund_to_vol()
   raw_vol_data = vol_data.raw()
   minmax_vol_data = vol_data.minmax()

@@ -129,10 +129,11 @@ class Data_pipeline:
         heatmap = fig.add_subplot(gs[2:7,:])
         ols_result = fig.add_subplot(gs[7:12,:])
         regplot = fig.add_subplot(gs[12:17,:])
-    
-        top_corr.text(0, 0, str(data.corr()["Close"].sort_values()[-15:-1]),
-                            {'fontsize': 35}, fontproperties = 'monospace',
-                     )
+        corr_topn = data.corr()["Close"][data.corr()["Close"].abs().argsort()[-topn:-1]]
+
+        top_corr.text(0, 0, str(corr_topn),
+                            {'fontsize': 35}, fontproperties = 'monospace')
+
         top_corr.set_title(f"Correlation ranking (Top {topn})", {'fontsize':35})
         top_corr.axis('off')
     
@@ -141,7 +142,7 @@ class Data_pipeline:
         
         self.logger.info("Begin regression analysis")
 
-        columns_to_keep = data.corr()["Close"].sort_values()[-15:-1].index
+        columns_to_keep = corr_topn.index
         X, X_test, Y, Y_test = train_test_split(data.loc[:,columns_to_keep].values,\
                                                 data["Close"].values,\
                                                 test_size=test_ratio)
@@ -153,8 +154,8 @@ class Data_pipeline:
         results = model.fit()
     
         ols_result.text(0, 0, str(results.summary()),
-                              {'fontsize': 35}, fontproperties = 'monospace',
-                       )
+                              {'fontsize': 35}, fontproperties = 'monospace')
+
         ols_result.axis('off')
         self.logger.info(f"Y Shape: {Y.shape}, X Shape: {X.shape}")
 
