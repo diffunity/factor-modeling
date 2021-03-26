@@ -132,8 +132,8 @@ class Data_pipeline:
         corr_topn = data.corr()["Close"][data.corr()["Close"].abs().argsort()[-topn:-1]]
 
         top_corr.text(0, 0, str(corr_topn),
-                            {'fontsize': 35}, fontproperties = 'monospace')
-
+                            {'fontsize': 35}, fontproperties = 'monospace',
+                     )
         top_corr.set_title(f"Correlation ranking (Top {topn})", {'fontsize':35})
         top_corr.axis('off')
     
